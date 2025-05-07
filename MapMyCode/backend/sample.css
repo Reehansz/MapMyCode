@@ -1,0 +1,12 @@
+/* Sample CSS file */
+.App {
+    text-align: center;
+}
+
+#main {
+    color: blue;
+}
+
+.button {
+    background-color: red;
+}
