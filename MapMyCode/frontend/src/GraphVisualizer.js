@@ -2,28 +2,25 @@ import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import * as d3Zoom from 'd3-zoom';
 
-const GraphVisualizer = ({ data }) => {
+const GraphVisualizer = ({ data, onNodeClick }) => {
   const svgRef = useRef();
 
-  console.log("GraphVisualizer received data:", data);
-  console.log("Nodes:", data.nodes);
-  console.log("Links:", data.links);
-  console.log("Rendering GraphVisualizer with data:", data);
-  console.log("Nodes:", data.nodes);
-  console.log("Links:", data.links);
-  console.log("GraphVisualizer Data:", data);
+  // Find the path to the clicked node
+  const findPathToNode = (nodeId) => {
+    let path = [];
+    let currentNode = nodeId;
 
-  console.log("GraphVisualizer Debug:");
-  console.log("SVG Ref:", svgRef.current);
-  console.log("Data Nodes:", data.nodes);
-  console.log("Data Links:", data.links);
+    // Loop to find the path from the current node to the origin
+    while (currentNode) {
+      const link = data.links.find((link) => link.target === currentNode);
+      if (!link) break;
 
-  if (!data.nodes || data.nodes.length === 0) {
-    console.warn("No nodes to render in the graph.");
-  }
-  if (!data.links || data.links.length === 0) {
-    console.warn("No links to render in the graph.");
-  }
+      path.unshift(link.source); // Add the source node to the front of the path
+      currentNode = link.source;
+    }
+
+    return path;
+  };
 
   useEffect(() => {
     const svg = d3.select(svgRef.current);
@@ -118,11 +115,14 @@ const GraphVisualizer = ({ data }) => {
 
     node.append('title').text(d => d.id);
 
+    // Node click handler
     node.on('click', (event, d) => {
-      const calls = data.links.filter(link => link.source === d.id);
-      const calledBy = data.links.filter(link => link.target === d.id);
-      console.log('Calls:', calls);
-      console.log('Called By:', calledBy);
+      const path = findPathToNode(d.id);
+      console.log('Path to Node:', path);
+      // Call the onNodeClick handler and pass the path if you want to update the UI
+      if (onNodeClick) {
+        onNodeClick(path);
+      }
     });
 
     const nodeLabels = container.append('g')

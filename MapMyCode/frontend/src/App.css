@@ -1,3 +1,8 @@
+/* Root variable for toolbar height */
+:root {
+  --toolbar-height: 60px;
+}
+
 /* Enhanced styles for better UI aesthetics */
 body {
   font-family: 'Roboto', sans-serif;
@@ -18,16 +23,16 @@ body {
 /* Sidebar - File Hierarchy */
 .file-hierarchy-container {
   position: fixed;
+  top: var(--toolbar-height);
   left: 0;
-  top: 0;
   bottom: 0;
   width: 20%;
-  height: 100%;
+  height: calc(100% - var(--toolbar-height));
   overflow-y: auto;
   background-color: #ffffff;
   border-right: 1px solid #ddd;
   box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
-  z-index: 1000;
+  z-index: 999;
   padding: 10px;
   box-sizing: border-box;
   transition: background-color 0.3s;
@@ -78,6 +83,7 @@ body {
 /* Graph Area */
 .graph-area {
   margin-left: 20%;
+  margin-top: 25px;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -88,8 +94,8 @@ body {
   overflow-x: hidden;
   background-color: #ffffff;
   scrollbar-width: thin;
-  scrollbar-color: #007bff #f9f9f9;
-  height: calc(100vh - 50px);
+  scrollbar-color: #000 #f9f9f9;
+  height: calc(100vh - var(--toolbar-height));
   border-left: 1px solid #ddd;
 }
 
@@ -119,14 +125,32 @@ body {
   background-color: #ffffff;
   border-bottom: 1px solid #ddd;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-  padding: 10px;
+  padding: 10px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: var(--toolbar-height);
+  z-index: 1000;
+  box-sizing: border-box;
 }
 
-.toolbar button {
-  background-color: #007bff;
+.toolbar-left {
+  display: flex;
+  align-items: center;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.toolbar button,
+.upload-button {
+  background-color: #000;
   color: #fff;
   border: none;
   padding: 8px 14px;
@@ -135,9 +159,62 @@ body {
   transition: background-color 0.3s, transform 0.2s;
 }
 
-.toolbar button:hover {
+.toolbar button:hover,
+.upload-button:hover {
   background-color: #0056b3;
   transform: scale(1.05);
+}
+
+/* App Header */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 24px;
+  background-color: white;
+  border-bottom: 1px solid #ddd;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--toolbar-height);
+  z-index: 1000;
+  box-sizing: border-box;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ibm-logo {
+  height: 32px;
+  width: auto;
+  margin-right: 10px;
+}
+
+.app-title {
+  font-size: 20px;
+  font-weight: bold;
+  color: #333;
+}
+
+.upload-btn {
+  background-color: #000;
+  color: white;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.profile-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #ccc;
 }
 
 /* Graph Placeholder */
@@ -227,16 +304,22 @@ svg {
 
 /* Toggle Button */
 .toggle-button {
-  background-color: #007bff;
+  padding: 8px 16px;
+  background-color: #000;
   color: #fff;
   border: none;
-  padding: 8px 14px;
   border-radius: 4px;
   cursor: pointer;
+  font-weight: 500;
   margin-bottom: 10px;
-  transition: background-color 0.3s;
 }
 
 .toggle-button:hover {
-  background-color: #0056b3;
+  background-color: #333;
 }
+.ibm-logo {
+  width: 100px; /* Adjust width as needed */
+  height: auto;
+  fill: black; /* Change the color of the logo */
+}
+

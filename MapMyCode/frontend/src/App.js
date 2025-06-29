@@ -3,20 +3,18 @@ import FileCard from './FileCard';
 import GraphVisualizer from './GraphVisualizer';
 import './App.css';
 
-// eslint-disable-next-line no-unused-vars
 function App() {
   const [graphData, setGraphData] = useState({ call_graph: {}, nodes: [], links: [] });
-  // eslint-disable-next-line no-unused-vars
   const [greetMessage, setGreetMessage] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedFunction, setSelectedFunction] = useState(null);
-  const [errorMessage, setErrorMessage] = useState(null); // State for error messages
+  const [errorMessage, setErrorMessage] = useState(null);
 
   useEffect(() => {
     fetch('http://127.0.0.1:8000/')
       .then((response) => response.json())
       .then((data) => setGreetMessage(data.message))
-      .catch((error) => setErrorMessage("Failed to fetch greeting message. Please try again later."));
+      .catch(() => setErrorMessage("Failed to fetch greeting message. Please try again later."));
   }, []);
 
   const handleFileUpload = (event) => {
@@ -38,7 +36,7 @@ function App() {
       .then((response) => response.json())
       .then((data) => {
         if (data.detail) {
-          setErrorMessage(data.detail); // Display the error message from the backend
+          setErrorMessage(data.detail);
           return;
         }
 
@@ -66,12 +64,12 @@ function App() {
           links,
         });
       })
-      .catch((error) => setErrorMessage("Error uploading files. Please try again later."));
+      .catch(() => setErrorMessage("Error uploading files. Please try again later."));
   };
 
   const handleFileSelect = (fileName) => {
     setSelectedFile(fileName);
-    setSelectedFunction(null); // Reset function selection when a new file is selected
+    setSelectedFunction(null); // Reset selected function
   };
 
   const handleFunctionSelect = (functionData) => {
@@ -89,8 +87,6 @@ function App() {
   };
 
   const renderFileHierarchy = () => {
-    console.log("Call Graph Structure:", graphData.call_graph);
-    console.log("Detailed Call Graph Structure:", JSON.stringify(graphData.call_graph, null, 2));
     return Object.entries(graphData.call_graph || {}).map(([fileName, fileGraph]) => (
       <div key={fileName} className="file-item">
         <h3 onClick={() => handleFileSelect(fileName)}>{fileName}</h3>
@@ -107,24 +103,18 @@ function App() {
     ));
   };
 
-  // eslint-disable-next-line no-unused-vars
-  const renderFileCards = () => {
-    return Object.entries(graphData.call_graph || {}).map(([fileName, fileGraph]) => (
-      <FileCard key={fileName} fileName={fileName} fileGraph={fileGraph} />
-    ));
-  };
-
   return (
     <div className="App">
-      {renderErrorMessage()}
-
-      <div className="file-hierarchy-container">
-        {renderFileHierarchy()}
-      </div>
-
-      <div className="graph-area">
-        <div className="toolbar">
-          <span>MapMyCode</span>
+      <div className="toolbar">
+        <div className="toolbar-left">
+          <img
+            src="/ibm-logo.png" // Direct path to the image in public folder
+            alt="IBM Logo"
+            className="ibm-logo"
+          />
+          <span className="app-title">MapMyCode</span>
+        </div>
+        <div className="toolbar-right">
           <input
             type="file"
             webkitdirectory="true"
@@ -137,69 +127,82 @@ function App() {
           <label htmlFor="file-upload" className="upload-button">
             Upload Code
           </label>
+          <div className="profile-icon" />
+        </div>
+      </div>
+
+      {renderErrorMessage()}
+
+      <div className="main-content">
+        <div className="file-hierarchy-container">
+          {renderFileHierarchy()}
         </div>
 
-        {selectedFunction && (
-          <div className="function-details collapsible">
-            <button
-              className="toggle-button"
-              onClick={() => {
-                const details = document.querySelector('.function-details');
-                details.classList.toggle('collapsed');
-              }}
-            >
-              Toggle Function Details
-            </button>
-            <div className="details-content">
-              <h2>Function Details</h2>
-              <p><strong>File:</strong> {selectedFunction.fileName}</p>
-              <p><strong>Function:</strong> {selectedFunction.functionName}</p>
-              <p><strong>Line:</strong> {selectedFunction.details.line}</p>
-              <p><strong>Docstring:</strong> {selectedFunction.details.docstring || 'No docstring available'}</p>
-              <h3>Calls:</h3>
-              <ul>
-                {selectedFunction.details.calls.map((call, index) => (
-                  <li key={index}>{call.function} (Line: {call.line})</li>
-                ))}
-              </ul>
-              <h3>Called By:</h3>
-              <ul>
-                {selectedFunction.details.called_by.map((caller, index) => (
-                  <li key={index}>{caller.function} (Line: {caller.line})</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
-
-        <div className="function-cards-container">
-          {selectedFile &&
-            Object.entries(graphData.call_graph[selectedFile] || {}).map(([functionName, details]) => (
-              <div
-                key={functionName}
-                className="function-card"
-                onClick={() => handleFunctionSelect({ fileName: selectedFile, functionName, details })}
+        <div className="graph-area">
+          {selectedFunction && (
+            <div className="function-details collapsible">
+              <button
+                className="toggle-button"
+                onClick={() => {
+                  const details = document.querySelector('.function-details');
+                  details.classList.toggle('collapsed');
+                }}
               >
-                {functionName} (Line: {details.line})
+                Toggle Function Details
+              </button>
+              <div className="details-content">
+                <h2>Function Details</h2>
+                <p><strong>File:</strong> {selectedFunction.fileName}</p>
+                <p><strong>Function:</strong> {selectedFunction.functionName}</p>
+                <p><strong>Line:</strong> {selectedFunction.details.line}</p>
+                <p><strong>Docstring:</strong> {selectedFunction.details.docstring || 'No docstring available'}</p>
+                <h3>Calls:</h3>
+                <ul>
+                  {selectedFunction.details.calls.map((call, index) => (
+                    <li key={index}>{call.function} (Line: {call.line})</li>
+                  ))}
+                </ul>
+                <h3>Called By:</h3>
+                <ul>
+                  {selectedFunction.details.called_by.map((caller, index) => (
+                    <li key={index}>{caller.function} (Line: {caller.line})</li>
+                  ))}
+                </ul>
               </div>
-            ))}
-        </div>
+            </div>
+          )}
 
-        {selectedFunction && (
-          <GraphVisualizer
-            data={{
-              nodes: [
-                { id: selectedFunction.functionName, function: selectedFunction.functionName, line: selectedFunction.details.line, file: selectedFunction.fileName },
-                ...selectedFunction.details.calls.map((call) => ({ id: call.function, function: call.function, line: call.line, file: selectedFunction.fileName })),
-                ...selectedFunction.details.called_by.map((caller) => ({ id: caller.function, function: caller.function, line: caller.line, file: selectedFunction.fileName })),
-              ],
-              links: [
-                ...selectedFunction.details.calls.map((call) => ({ source: selectedFunction.functionName, target: call.function, line: call.line })),
-                ...selectedFunction.details.called_by.map((caller) => ({ source: caller.function, target: selectedFunction.functionName, line: caller.line })),
-              ],
-            }}
-          />
-        )}
+          {/* Function Cards Container */}
+          <div className="function-cards-container">
+            {selectedFile &&
+              Object.entries(graphData.call_graph[selectedFile] || {}).map(([functionName, details]) => (
+                <div
+                  key={functionName}
+                  className="function-card"
+                  onClick={() => handleFunctionSelect({ fileName: selectedFile, functionName, details })}
+                >
+                  {functionName} (Line: {details.line})
+                </div>
+              ))}
+          </div>
+
+          {/* Graph Visualizer */}
+          {selectedFunction && (
+            <GraphVisualizer
+              data={{
+                nodes: [
+                  { id: selectedFunction.functionName, function: selectedFunction.functionName, line: selectedFunction.details.line, file: selectedFunction.fileName },
+                  ...selectedFunction.details.calls.map((call) => ({ id: call.function, function: call.function, line: call.line, file: selectedFunction.fileName })),
+                  ...selectedFunction.details.called_by.map((caller) => ({ id: caller.function, function: caller.function, line: caller.line, file: selectedFunction.fileName })),
+                ],
+                links: [
+                  ...selectedFunction.details.calls.map((call) => ({ source: selectedFunction.functionName, target: call.function, line: call.line })),
+                  ...selectedFunction.details.called_by.map((caller) => ({ source: caller.function, target: selectedFunction.functionName, line: caller.line })),
+                ],
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
