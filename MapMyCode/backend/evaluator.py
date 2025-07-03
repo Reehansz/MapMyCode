@@ -13,8 +13,8 @@ def load_watsonx_model(api_key, project_id, model_id=None, url=None):
         url = os.environ.get("WATSONX_ENDPOINT", "https://us-south.ml.cloud.ibm.com")
     credentials = Credentials(url=url, api_key=api_key)
     client = APIClient(credentials)
-    # Increase max_new_tokens for longer output
-    model = ModelInference(model_id=model_id, api_client=client, project_id=project_id, params={"max_new_tokens": 512})
+    # Increase max_new_tokens for longer output (set to 2048 for large completions)
+    model = ModelInference(model_id=model_id, api_client=client, project_id=project_id, params={"max_new_tokens": 2048})
     return model
 
 def run_prompt(model, prompt, retries=5, delay=10):
@@ -24,7 +24,7 @@ def run_prompt(model, prompt, retries=5, delay=10):
             return response['results'][0]['generated_text']
         except ApiRequestFailure as e:
             if e.status_code == 429:
-                print(f"⚠️ Rate limit hit. Retry {attempt + 1}/{retries} in {delay}s")
+                print(f"Rate limit hit. Retry {attempt + 1}/{retries} in {delay}s")
                 time.sleep(delay)
             else:
                 raise
@@ -66,5 +66,5 @@ Format your answer for readability by a developer (use markdown-style headings a
             else:
                 raise
         except Exception as e:
-            print(f"❌ Model call failed (describe_function): {e}")
+            print(f"Model call failed (describe_function): {e}")
             raise
