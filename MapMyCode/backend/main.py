@@ -243,8 +243,12 @@ def call_graph(files: List[UploadFile] = File(...)):
         raise HTTPException(status_code=413, detail=f"Too many files. Max allowed is {MAX_FILES}.")
 
     grouped_graph = {}
+    text_extensions = {".py", ".js", ".ts", ".sh", ".java", ".txt", ".md", "Dockerfile", ".json", ".yaml", ".yml"}
     for file in files:
         file_extension = os.path.splitext(file.filename)[1]
+        if file_extension not in text_extensions:
+            logging.warning(f"Skipping non-text or unsupported file: {file.filename}")
+            continue
         try:
             content = file.file.read().decode("utf-8")
             if file_extension == ".py":
@@ -252,6 +256,9 @@ def call_graph(files: List[UploadFile] = File(...)):
                 grouped_graph[file.filename] = graph
             else:
                 grouped_graph[file.filename] = process_non_python_file(content, file_extension)
+        except UnicodeDecodeError:
+            logging.warning(f"Skipping binary or non-UTF-8 file: {file.filename}")
+            continue
         except Exception as e:
             logging.error("Error processing file %s: %s", file.filename, str(e))
             continue

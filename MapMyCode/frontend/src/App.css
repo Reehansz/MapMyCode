@@ -47,6 +47,7 @@ body {
   padding: 10px;
   box-sizing: border-box;
   transition: background-color 0.3s;
+  word-break: break-all;
 }
 
 .file-hierarchy-container:hover {
@@ -54,17 +55,25 @@ body {
 }
 
 .file-item {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  max-width: 95%;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  font-size: 12px;
 }
 
 .file-item h3 {
   cursor: pointer;
-  font-size: 16px;
+  font-size: 13px;
   margin: 0;
-  padding: 10px;
+  padding: 8px;
   border-radius: 4px;
   background-color: #e3f2fd;
   transition: background-color 0.3s, transform 0.2s;
+  max-width: 100%;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 .file-item h3:hover {
@@ -239,18 +248,23 @@ body {
 /* Function Details Panel */
 .function-details {
   margin: 20px 0;
-  padding: 15px;
+  padding: 20px;
   background-color: #ffffff;
   border: 1px solid #ddd;
   border-radius: 8px;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-  width: 80%;
+  width: 100%;
   box-sizing: border-box;
-  transition: transform 0.3s;
+  min-width: 0;
+  /* Match .graph-area */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
 .function-details.collapsible {
-  max-height: 300px;
+  max-height: 600px;
   overflow-y: auto;
   transition: max-height 0.3s ease-in-out;
 }
