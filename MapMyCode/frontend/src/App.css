@@ -47,6 +47,7 @@ body {
   padding: 10px;
   box-sizing: border-box;
   transition: background-color 0.3s;
+  word-break: break-all;
 }
 
 .file-hierarchy-container:hover {
@@ -54,17 +55,25 @@ body {
 }
 
 .file-item {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  max-width: 95%;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  font-size: 12px;
 }
 
 .file-item h3 {
   cursor: pointer;
-  font-size: 16px;
+  font-size: 13px;
   margin: 0;
-  padding: 10px;
+  padding: 8px;
   border-radius: 4px;
   background-color: #e3f2fd;
   transition: background-color 0.3s, transform 0.2s;
+  max-width: 100%;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 .file-item h3:hover {

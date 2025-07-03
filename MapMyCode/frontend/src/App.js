@@ -18,6 +18,7 @@ function App() {
   const [generatedDescription, setGeneratedDescription] = useState(""); // New state for generated description
   const [functionDescription, setFunctionDescription] = useState("");
   const [descLoading, setDescLoading] = useState(false);
+  const [openFolders, setOpenFolders] = useState({}); // <-- Add openFolders state
 
   useEffect(() => {
     fetch('http://127.0.0.1:8000/')
@@ -104,53 +105,134 @@ function App() {
     );
   };
 
-  const renderFileHierarchy = () => {
-    // Filter files by search query
-    const filteredFiles = Object.entries(graphData.call_graph || {}).filter(([fileName]) =>
-      fileName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      Object.keys(graphData.call_graph[fileName] || {}).some(fn => fn.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
-    return filteredFiles.map(([fileName, fileGraph]) => {
-      const lang = getFileLanguage(fileName);
-      if (lang === 'java') {
-        return (
-          <div key={fileName} className="file-item">
-            <h3>{fileName} <span style={{color: 'orange'}}>(Java not supported)</span></h3>
-          </div>
-        );
+  // Helper to build a nested tree from flat file paths (supports unlimited nesting)
+  function buildFileTree(callGraph) {
+    const root = {};
+    for (const filePath of Object.keys(callGraph)) {
+      const parts = filePath.split('/');
+      let node = root;
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (!node[part]) {
+          if (i === parts.length - 1) {
+            node[part] = { __file: filePath };
+          } else {
+            node[part] = {};
+          }
+        }
+        node = node[part];
       }
-      if (lang === 'other' || fileGraph.type === 'text' || fileGraph.type === 'unknown') {
-        return (
-          <div key={fileName} className="file-item">
-            <h3>{fileName} <span style={{color: 'gray'}}>(Unsupported)</span></h3>
-          </div>
-        );
-      }
-      // For Python, JS, TS, Shell
-      // Filter functions by search query
-      const filteredFunctions = Object.entries(fileGraph).filter(([functionName]) =>
-        functionName.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      return (
-        <div key={fileName} className="file-item">
-          <h3 onClick={() => handleFileSelect(fileName)}>{fileName} <span style={{color:'#888', fontSize:'0.8em'}}>({lang})</span></h3>
-          {selectedFile === fileName && (
-            <ul>
-              {filteredFunctions.map(([functionName, details]) => (
-                <li
-                  key={functionName}
-                  onClick={() => handleFunctionSelect({ fileName, functionName, details })}
-                  style={details.is_fixture ? { color: '#007bff', fontWeight: 'bold' } : {}}
-                >
-                  {functionName} {details.is_fixture && <span style={{fontSize:'0.8em', color:'#007bff', marginLeft:4}}>[fixture]</span>} {details.line ? `(Line: ${details.line})` : ''}
+    }
+    return root;
+  }
+
+  // Recursive component to render the tree (supports unlimited nesting)
+  function FileTree({ node, parentPath = '', onFileSelect, selectedFile, getFileLanguage, handleFunctionSelect, callGraph, searchQuery, openFolders, setOpenFolders }) {
+    return (
+      <ul style={{ listStyle: 'none', paddingLeft: 16 }}>
+        {Object.entries(node).map(([name, child]) => {
+          if (child.__file) {
+            // It's a file
+            const fileName = child.__file;
+            const lang = getFileLanguage(fileName);
+            if (lang === 'java') {
+              return (
+                <li key={fileName} className="file-item">
+                  <h3>{fileName} <span style={{color: 'orange'}}>(Java not supported)</span></h3>
                 </li>
-              ))}
-              {filteredFunctions.length === 0 && <li style={{color:'#888'}}>No functions match search.</li>}
-            </ul>
-          )}
-        </div>
-      );
-    });
+              );
+            }
+            if (lang === 'other' || callGraph[fileName].type === 'text' || callGraph[fileName].type === 'unknown') {
+              return (
+                <li key={fileName} className="file-item">
+                  <h3>{fileName} <span style={{color: 'gray'}}>(Unsupported)</span></h3>
+                </li>
+              );
+            }
+            // Filter functions by search query
+            const filteredFunctions = Object.entries(callGraph[fileName]).filter(([functionName]) =>
+              functionName.toLowerCase().includes(searchQuery.toLowerCase())
+            );
+            return (
+              <li key={fileName} className="file-item">
+                <h3 onClick={() => onFileSelect(fileName)} style={{ cursor: 'pointer' }}>{fileName} <span style={{color:'#888', fontSize:'0.8em'}}>({lang})</span></h3>
+                {selectedFile === fileName && (
+                  <ul>
+                    {filteredFunctions.map(([functionName, details]) => (
+                      <li
+                        key={functionName}
+                        onClick={() => handleFunctionSelect({ fileName, functionName, details })}
+                        style={details.is_fixture ? { color: '#007bff', fontWeight: 'bold' } : {}}
+                      >
+                        {functionName} {details.is_fixture && <span style={{fontSize:'0.8em', color:'#007bff', marginLeft:4}}>[fixture]</span>} {details.line ? `(Line: ${details.line})` : ''}
+                      </li>
+                    ))}
+                    {filteredFunctions.length === 0 && <li style={{color:'#888'}}>No functions match search.</li>}
+                  </ul>
+                )}
+              </li>
+            );
+          } else {
+            // It's a folder (may contain more folders/files)
+            const folderPath = parentPath ? `${parentPath}/${name}` : name;
+            const open = !!openFolders[folderPath];
+            // Show folder if any child matches search
+            const hasMatch = (function checkMatch(n) {
+              return Object.entries(n).some(([k, v]) => {
+                if (v.__file) {
+                  if (k.toLowerCase().includes(searchQuery.toLowerCase())) return true;
+                  if (Object.keys(callGraph[v.__file] || {}).some(fn => fn.toLowerCase().includes(searchQuery.toLowerCase()))) return true;
+                  return false;
+                } else {
+                  return checkMatch(v);
+                }
+              });
+            })(child);
+            if (!hasMatch) return null;
+            return (
+              <li key={folderPath}>
+                <div style={{ fontWeight: 'bold', cursor: 'pointer', color: '#007bff' }}
+                  onClick={() => setOpenFolders(f => ({ ...f, [folderPath]: !f[folderPath] }))}>
+                  {open ? '▼' : '▶'} {name}
+                </div>
+                {open && (
+                  <FileTree
+                    node={child}
+                    parentPath={folderPath}
+                    onFileSelect={onFileSelect}
+                    selectedFile={selectedFile}
+                    getFileLanguage={getFileLanguage}
+                    handleFunctionSelect={handleFunctionSelect}
+                    callGraph={callGraph}
+                    searchQuery={searchQuery}
+                    openFolders={openFolders}
+                    setOpenFolders={setOpenFolders}
+                  />
+                )}
+              </li>
+            );
+          }
+        })}
+      </ul>
+    );
+  }
+
+  const fileTree = React.useMemo(() => buildFileTree(graphData.call_graph), [graphData.call_graph]);
+
+  const renderFileHierarchy = () => {
+    return (
+      <FileTree
+        node={fileTree}
+        onFileSelect={handleFileSelect}
+        selectedFile={selectedFile}
+        getFileLanguage={getFileLanguage}
+        handleFunctionSelect={handleFunctionSelect}
+        callGraph={graphData.call_graph}
+        searchQuery={searchQuery}
+        openFolders={openFolders}
+        setOpenFolders={setOpenFolders}
+      />
+    );
   };
 
   // Drag handlers for function card
@@ -378,44 +460,6 @@ function App() {
               </div>
             </div>
           )}
-
-          {/* Function Cards Container */}
-          <div className="function-cards-container" style={{ position: 'relative', minHeight: 120 }}>
-            {/* Filter function cards by search query */}
-            {selectedFile &&
-              Object.entries(graphData.call_graph[selectedFile] || {})
-                .filter(([functionName]) => functionName.toLowerCase().includes(searchQuery.toLowerCase()))
-                .map(([functionName, details]) => {
-                  const isSelected = selectedFunction && selectedFunction.functionName === functionName;
-                  return (
-                    <div
-                      key={functionName}
-                      className="function-card"
-                      id={isSelected ? 'draggable-function-card' : undefined}
-                      style={
-                        isSelected
-                          ? {
-                              position: isDragging ? 'absolute' : 'relative',
-                              left: isDragging ? undefined : 0,
-                              top: isDragging ? undefined : 0,
-                              zIndex: isDragging ? 10 : 1,
-                              cursor: isDragging ? 'grabbing' : 'grab',
-                              background: '#e6f7ff',
-                              border: '2px solid #007bff',
-                            }
-                          : {}
-                      }
-                      draggable={isSelected}
-                      onDragStart={isSelected ? handleDragStart : undefined}
-                      onDrag={isSelected ? handleDrag : undefined}
-                      onDragEnd={isSelected ? handleDragEnd : undefined}
-                      onClick={() => handleFunctionSelect({ fileName: selectedFile, functionName, details })}
-                    >
-                      {functionName} (Line: {details.line})
-                    </div>
-                  );
-                })}
-          </div>
 
           {/* Graph Visualizer */}
           {selectedFunction && (() => {
