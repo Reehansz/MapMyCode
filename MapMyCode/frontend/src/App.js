@@ -9,13 +9,12 @@ function App() {
   const [selectedFunction, setSelectedFunction] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
   const [searchQuery, setSearchQuery] = useState(''); // <-- Add search state
-  const [draggedCardPos, setDraggedCardPos] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
   const [aiPrompt, setAIPrompt] = useState("");
   const [aiResult, setAIResult] = useState("");
   const [aiLoading, setAILoading] = useState(false);
-  const [generatedDescription, setGeneratedDescription] = useState(""); // New state for generated description
+  const [showDebugPrompt, setShowDebugPrompt] = useState(false);
+  const [debugPrompt, setDebugPrompt] = useState("");
   const [functionDescription, setFunctionDescription] = useState("");
   const [descLoading, setDescLoading] = useState(false);
   const [openFolders, setOpenFolders] = useState({}); // <-- Add openFolders state
@@ -235,66 +234,49 @@ function App() {
     );
   };
 
-  // Drag handlers for function card
-  const handleDragStart = (e) => {
-    setIsDragging(true);
-    // Get initial mouse position relative to card
-    const rect = e.target.getBoundingClientRect();
-    setDraggedCardPos({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    });
-  };
-
-  const handleDrag = (e) => {
-    if (!isDragging || !selectedFunction) return;
-    if (e.clientX === 0 && e.clientY === 0) return; // Ignore dragend event
-    const container = document.querySelector('.function-cards-container');
-    if (!container) return;
-    // Set the card's position relative to the container
-    const containerRect = container.getBoundingClientRect();
-    const newX = e.clientX - containerRect.left - draggedCardPos.x;
-    const newY = e.clientY - containerRect.top - draggedCardPos.y;
-    const card = document.getElementById('draggable-function-card');
-    if (card) {
-      card.style.position = 'absolute';
-      card.style.left = `${newX}px`;
-      card.style.top = `${newY}px`;
-      card.style.zIndex = 10;
-      card.style.cursor = 'grabbing';
-    }
-  };
-
-  const handleDragEnd = (e) => {
-    setIsDragging(false);
-    const card = document.getElementById('draggable-function-card');
-    if (card) {
-      card.style.cursor = 'grab';
-    }
-  };
-
   // AI code generation handler
   const handleAIGenerate = async () => {
     setAILoading(true);
     setAIResult("");
-    setGeneratedDescription(""); // Reset description state
-    // Collect context: function code, callees, callers, docstring
+    setDebugPrompt("");
+    // Minimal context: root function code and direct callees' code only
+    const fileCallGraph = graphData.call_graph[selectedFunction.fileName] || {};
+    const all_functions = { ...fileCallGraph };
+    const root_code = selectedFunction.details?.source || selectedFunction.details?.code || "";
+    // Get direct callees and their code (no recursion, no docstrings)
+    const callees = (Array.isArray(selectedFunction.details?.calls) ? selectedFunction.details.calls : [])
+      .map(call => {
+        const calleeDetails = all_functions[call.function] || {};
+        const calleeCode = calleeDetails.source || calleeDetails.code || "";
+        return {
+          function: call.function,
+          code: calleeCode,
+          label: 'callee', // explicitly mark as callee/dependent
+        };
+      });
     const context = {
       fileName: selectedFunction.fileName,
       functionName: selectedFunction.functionName,
-      details: selectedFunction.details,
-      callees: (Array.isArray(selectedFunction.details?.calls) ? selectedFunction.details.calls : []),
-      callers: (Array.isArray(selectedFunction.details?.called_by) ? selectedFunction.details.called_by : []),
+      root_code,
+      callees // each callee now includes its code and label
     };
     try {
+      // Concise prompt instructions to avoid overloading/confusing the model
+      const language = getFileLanguage(selectedFunction.fileName);
+      const conciseInstructions = `# Generate the function as described below.\n# Only do exactly what the user intends—do not add extra explanations, comments, or code unless explicitly requested.\n# Do NOT generate or rewrite code for any called functions or methods—stick to the core function only.\n# If you have any suggestions or ideas for improvement, add them as a short note at the end, starting with 'Suggestion:'.\n# The code should be valid ${language}.\n# User request:`;
+      const enhancedPrompt = `${conciseInstructions}\n${aiPrompt}`;
+      const body = { prompt: enhancedPrompt, context };
+      if (showDebugPrompt) body.debug = true;
       const response = await fetch("http://127.0.0.1:8000/generate-function", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: aiPrompt, context }),
+        body: JSON.stringify(body),
       });
       const data = await response.json();
       setAIResult(data.generated_code || data.error || "No code generated.");
-      setGeneratedDescription(data.description || ""); // Fix: use 'description' field from backend
+      if (showDebugPrompt && (data.debug_prompt || data.full_prompt || data.prompt || data.context)) {
+        setDebugPrompt(data.debug_prompt || data.full_prompt || data.prompt || JSON.stringify(data.context, null, 2));
+      }
     } catch (e) {
       setAIResult("Error contacting AI backend.");
     }
@@ -306,10 +288,33 @@ function App() {
     setDescLoading(true);
     setFunctionDescription("");
     try {
+      // Enhanced best-practice instructions for describing a function
+      const language = getFileLanguage(selectedFunction.fileName);
+      const describeInstructions = [
+        "- Provide a clear, concise, and accurate description of what the function does.",
+        "- Summarize the purpose and main logic of the function in plain language.",
+        "- If possible, explain the role of each parameter and the return value.",
+        "- Mention any important edge cases, error handling, or side effects.",
+        "- If the function is part of a class or module, describe its context or relationship to other code.",
+        "- If the user requests a simplified explanation, step-by-step breakdown, or example, provide it as appropriate.",
+        "- Do not repeat the function code unless specifically asked.",
+        `- The description should be relevant for a ${language} developer.`
+      ];
+      const describePrompt = [
+        "# Please describe the following function, following these guidelines:",
+        ...describeInstructions,
+        "\n# Function details:",
+        JSON.stringify({
+          fileName: selectedFunction.fileName,
+          functionName: selectedFunction.functionName,
+          details: selectedFunction.details
+        }, null, 2)
+      ].join("\n");
       const response = await fetch("http://127.0.0.1:8000/describe-function", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          prompt: describePrompt,
           fileName: selectedFunction.fileName,
           functionName: selectedFunction.functionName,
           details: selectedFunction.details
@@ -504,17 +509,17 @@ function App() {
       {/* AI Modal */}
       {showAIModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 8, padding: 32, minWidth: 400, maxWidth: 600, boxShadow: '0 4px 24px rgba(0,0,0,0.18)' }}>
+          <div style={{ background: '#fff', borderRadius: 8, padding: 32, minWidth: 600, maxWidth: '95vw', width: '80vw', boxShadow: '0 4px 24px rgba(0,0,0,0.18)' }}>
             <h2>AI-Assisted Function Generation</h2>
             <label style={{ fontWeight: 'bold' }}>Describe the function you want to generate:</label>
             <textarea
               value={aiPrompt}
               onChange={e => setAIPrompt(e.target.value)}
-              rows={8} // Increased from 4 to 8 for more space
+              rows={8}
               style={{ width: '100%', minHeight: 120, margin: '12px 0', padding: 8, borderRadius: 4, border: '1px solid #ccc', resize: 'vertical' }}
               placeholder="e.g. Write a function that validates an email address."
             />
-            <div style={{ margin: '12px 0' }}>
+            <div style={{ margin: '12px 0', display: 'flex', alignItems: 'center' }}>
               <button
                 onClick={handleAIGenerate}
                 disabled={aiLoading || !aiPrompt.trim()}
@@ -522,18 +527,41 @@ function App() {
               >
                 {aiLoading ? 'Generating...' : 'Generate'}
               </button>
-              <button onClick={() => { setShowAIModal(false); setAIResult(""); setAIPrompt(""); }} style={{ border: 'none', background: '#eee', borderRadius: 4, padding: '8px 16px' }}>Cancel</button>
+              <button onClick={() => { setShowAIModal(false); setAIResult(""); setAIPrompt(""); setShowDebugPrompt(false); setDebugPrompt(""); }} style={{ border: 'none', background: '#eee', borderRadius: 4, padding: '8px 16px', marginRight: 12 }}>Cancel</button>
+              <label style={{ marginLeft: 8, fontSize: '0.95em', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={showDebugPrompt}
+                  onChange={e => setShowDebugPrompt(e.target.checked)}
+                  style={{ marginRight: 6 }}
+                />
+                Show AI Prompt/Context (Debug)
+              </label>
             </div>
             {aiResult && (
               <div style={{ marginTop: 16 }}>
                 <label style={{ fontWeight: 'bold' }}>Generated Code:</label>
-                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 4, maxHeight: 300, overflow: 'auto' }}>{aiResult}</pre>
-                {generatedDescription && (
-                  <div className="generated-description" style={{ marginTop: 12 }}>
-                    <h4 style={{ fontWeight: 'bold' }}>Function Description</h4>
-                    <p style={{ margin: 0 }}>{generatedDescription}</p>
-                  </div>
-                )}
+                <div style={{
+                  background: '#f5f5f5',
+                  padding: 12,
+                  borderRadius: 4,
+                  minHeight: 200,
+                  maxHeight: '60vh',
+                  width: '100%',
+                  overflowY: 'auto', // always show vertical scroll if needed
+                  fontSize: '1em',
+                  boxSizing: 'border-box',
+                }}>
+                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{aiResult}</pre>
+                </div>
+              </div>
+            )}
+            {showDebugPrompt && debugPrompt && (
+              <div style={{ marginTop: 24 }}>
+                <details open style={{ background: '#f0f0f0', borderRadius: 4, padding: 12 }}>
+                  <summary style={{ fontWeight: 'bold', cursor: 'pointer' }}>Full AI Prompt/Context Sent to Backend</summary>
+                  <pre style={{ margin: 0, fontSize: '0.95em', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 300, overflow: 'auto' }}>{debugPrompt}</pre>
+                </details>
               </div>
             )}
           </div>

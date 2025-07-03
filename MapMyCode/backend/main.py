@@ -46,8 +46,11 @@ def parse_python_file(file_content: str) -> List[Dict]:
     return functions
 
 def generate_call_graph_with_lines(file_content: str) -> Dict:
+
     call_graph = {}
     fixture_names = set()
+    lines = file_content.splitlines(keepends=True)
+
     class FixtureVisitor(ast.NodeVisitor):
         def visit_FunctionDef(self, node):
             is_fixture = any(
@@ -57,6 +60,21 @@ def generate_call_graph_with_lines(file_content: str) -> Dict:
             )
             if is_fixture:
                 fixture_names.add(node.name)
+
+            # Extract function code (from node.lineno to node.end_lineno)
+            # node.end_lineno is available in Python 3.8+
+            start = node.lineno - 1
+            end = getattr(node, 'end_lineno', None)
+            if end is None:
+                # Fallback: find the end by looking for next def/class or end of file
+                end = start + 1
+                while end < len(lines):
+                    line_strip = lines[end].lstrip()
+                    if line_strip.startswith('def ') or line_strip.startswith('class '):
+                        break
+                    end += 1
+            code = ''.join(lines[start:end])
+
             call_graph[node.name] = {
                 "calls": [],
                 "called_by": [],
@@ -64,6 +82,7 @@ def generate_call_graph_with_lines(file_content: str) -> Dict:
                 "docstring": ast.get_docstring(node),
                 "is_fixture": is_fixture,
                 "params": [arg.arg for arg in node.args.args],
+                "source": code,
             }
 
     tree = ast.parse(file_content)
@@ -268,6 +287,7 @@ class FunctionGenInput(BaseModel):
     prompt: str
     context: Dict
 
+
 @app.post("/generate-function")
 async def generate_function(data: FunctionGenInput):
     watsonx_api_key = os.environ.get("WATSONX_API_KEY")
@@ -278,25 +298,37 @@ async def generate_function(data: FunctionGenInput):
     if not (watsonx_api_key and watsonx_project_id):
         raise HTTPException(status_code=400, detail="Missing Watsonx credentials. Set WATSONX_API_KEY and WATSONX_PROJECT_ID.")
 
+
     context = data.context
     prompt = data.prompt
     context_str = []
-    context_str.append("# Context for code generation")
-    context_str.append(f"File: {context.get('fileName')}")
-    context_str.append(f"Function: {context.get('functionName')}")
-    if context.get('details', {}).get('docstring'):
-        context_str.append(f"Docstring: {context['details']['docstring']}")
-    if context.get('details', {}).get('params'):
-        context_str.append(f"Parameters: {context['details']['params']}")
-    if context.get('callees'):
-        context_str.append(f"Direct callees: {[c['function'] for c in context['callees']]}")
-    if context.get('callers'):
-        context_str.append(f"Direct callers: {[c['function'] for c in context['callers']]}")
-    context_str.append("")
-    context_str.append("# User request:")
     context_str.append(prompt)
     context_str.append("")
-    context_str.append("# Generate the function code:")
+    # Add the selected function's code (root function)
+    root_code = context.get('root_code') or (context.get('details', {}) or {}).get('source') or (context.get('details', {}) or {}).get('code')
+    if root_code:
+        context_str.append(f"# Function code for {context.get('functionName')}\n{root_code}")
+    # Add direct callees and their code (no recursion, no docstrings)
+    callees = context.get('callees', [])
+    if callees:
+        context_str.append("# Direct callees and their code:")
+        for callee in callees:
+            callee_name = callee.get('function')
+            callee_code = callee.get('code')
+            if callee_code:
+                context_str.append(f"# Callee: {callee_name}\n{callee_code}")
+
+    # --- DEBUG: Print prompt and context for debugging ---
+    logging.info("\n===== AI PROMPT SENT TO MODEL =====\n%s", "\n".join(context_str))
+    logging.info("\n===== FUNCTION CONTEXT SENT TO MODEL =====\n%s", json.dumps(context, indent=2, default=str))
+
+    # --- DEBUG: Return the full prompt/context for inspection ---
+    debug_mode = bool(os.environ.get("DEBUG_AI_PROMPT"))
+    if debug_mode:
+        return {
+            "debug_prompt": "\n".join(context_str),
+            "context": context
+        }
 
     try:
         model = load_watsonx_model(watsonx_api_key, watsonx_project_id)
