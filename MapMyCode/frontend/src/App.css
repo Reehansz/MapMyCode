@@ -20,19 +20,30 @@ body {
   overflow: hidden;
 }
 
+/* Main Content Area */
+.main-content {
+  display: flex;
+  flex-direction: row;
+  width: 100vw;
+  height: calc(100vh - var(--toolbar-height));
+  margin-top: var(--toolbar-height);
+  position: relative;
+}
+
 /* Sidebar - File Hierarchy */
 .file-hierarchy-container {
-  position: fixed;
-  top: var(--toolbar-height);
+  position: relative;
+  top: 0;
   left: 0;
-  bottom: 0;
   width: 20%;
-  height: calc(100% - var(--toolbar-height));
+  min-width: 200px;
+  max-width: 350px;
+  height: 100%;
   overflow-y: auto;
   background-color: #ffffff;
   border-right: 1px solid #ddd;
   box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
-  z-index: 999;
+  z-index: 2;
   padding: 10px;
   box-sizing: border-box;
   transition: background-color 0.3s;
@@ -82,21 +93,18 @@ body {
 
 /* Graph Area */
 .graph-area {
-  margin-left: 20%;
-  margin-top: 25px;
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   padding: 20px;
-  overflow-y: scroll;
+  overflow-y: auto;
   overflow-x: hidden;
   background-color: #ffffff;
-  scrollbar-width: thin;
-  scrollbar-color: #000 #f9f9f9;
-  height: calc(100vh - var(--toolbar-height));
+  height: 100%;
   border-left: 1px solid #ddd;
+  min-width: 0;
 }
 
 .graph-area::-webkit-scrollbar {

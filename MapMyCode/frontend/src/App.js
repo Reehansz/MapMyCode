@@ -1,19 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import FileCard from './FileCard';
 import GraphVisualizer from './GraphVisualizer';
+import ReactMarkdown from 'react-markdown';
 import './App.css';
 
 function App() {
   const [graphData, setGraphData] = useState({ call_graph: {}, nodes: [], links: [] });
-  const [greetMessage, setGreetMessage] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedFunction, setSelectedFunction] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [searchQuery, setSearchQuery] = useState(''); // <-- Add search state
+  const [draggedCardPos, setDraggedCardPos] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [aiPrompt, setAIPrompt] = useState("");
+  const [aiResult, setAIResult] = useState("");
+  const [aiLoading, setAILoading] = useState(false);
+  const [generatedDescription, setGeneratedDescription] = useState(""); // New state for generated description
+  const [functionDescription, setFunctionDescription] = useState("");
+  const [descLoading, setDescLoading] = useState(false);
 
   useEffect(() => {
     fetch('http://127.0.0.1:8000/')
       .then((response) => response.json())
-      .then((data) => setGreetMessage(data.message))
       .catch(() => setErrorMessage("Failed to fetch greeting message. Please try again later."));
   }, []);
 
@@ -72,8 +80,18 @@ function App() {
     setSelectedFunction(null); // Reset selected function
   };
 
+  const getFileLanguage = (fileName) => {
+    const ext = fileName.split('.').pop();
+    if (ext === 'py') return 'python';
+    if (ext === 'js' || ext === 'jsx' || ext === 'ts') return 'javascript';
+    if (ext === 'sh') return 'shell';
+    if (ext === 'java') return 'java';
+    return 'other';
+  };
+
   const handleFunctionSelect = (functionData) => {
     setSelectedFunction(functionData);
+    setFunctionDescription(""); // Clear previous description when switching functions
   };
 
   const renderErrorMessage = () => {
@@ -87,20 +105,140 @@ function App() {
   };
 
   const renderFileHierarchy = () => {
-    return Object.entries(graphData.call_graph || {}).map(([fileName, fileGraph]) => (
-      <div key={fileName} className="file-item">
-        <h3 onClick={() => handleFileSelect(fileName)}>{fileName}</h3>
-        {selectedFile === fileName && (
-          <ul>
-            {Object.entries(fileGraph).map(([functionName, details]) => (
-              <li key={functionName} onClick={() => handleFunctionSelect({ fileName, functionName, details })}>
-                {functionName} (Line: {details.line})
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    ));
+    // Filter files by search query
+    const filteredFiles = Object.entries(graphData.call_graph || {}).filter(([fileName]) =>
+      fileName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      Object.keys(graphData.call_graph[fileName] || {}).some(fn => fn.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+    return filteredFiles.map(([fileName, fileGraph]) => {
+      const lang = getFileLanguage(fileName);
+      if (lang === 'java') {
+        return (
+          <div key={fileName} className="file-item">
+            <h3>{fileName} <span style={{color: 'orange'}}>(Java not supported)</span></h3>
+          </div>
+        );
+      }
+      if (lang === 'other' || fileGraph.type === 'text' || fileGraph.type === 'unknown') {
+        return (
+          <div key={fileName} className="file-item">
+            <h3>{fileName} <span style={{color: 'gray'}}>(Unsupported)</span></h3>
+          </div>
+        );
+      }
+      // For Python, JS, TS, Shell
+      // Filter functions by search query
+      const filteredFunctions = Object.entries(fileGraph).filter(([functionName]) =>
+        functionName.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      return (
+        <div key={fileName} className="file-item">
+          <h3 onClick={() => handleFileSelect(fileName)}>{fileName} <span style={{color:'#888', fontSize:'0.8em'}}>({lang})</span></h3>
+          {selectedFile === fileName && (
+            <ul>
+              {filteredFunctions.map(([functionName, details]) => (
+                <li
+                  key={functionName}
+                  onClick={() => handleFunctionSelect({ fileName, functionName, details })}
+                  style={details.is_fixture ? { color: '#007bff', fontWeight: 'bold' } : {}}
+                >
+                  {functionName} {details.is_fixture && <span style={{fontSize:'0.8em', color:'#007bff', marginLeft:4}}>[fixture]</span>} {details.line ? `(Line: ${details.line})` : ''}
+                </li>
+              ))}
+              {filteredFunctions.length === 0 && <li style={{color:'#888'}}>No functions match search.</li>}
+            </ul>
+          )}
+        </div>
+      );
+    });
+  };
+
+  // Drag handlers for function card
+  const handleDragStart = (e) => {
+    setIsDragging(true);
+    // Get initial mouse position relative to card
+    const rect = e.target.getBoundingClientRect();
+    setDraggedCardPos({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+  };
+
+  const handleDrag = (e) => {
+    if (!isDragging || !selectedFunction) return;
+    if (e.clientX === 0 && e.clientY === 0) return; // Ignore dragend event
+    const container = document.querySelector('.function-cards-container');
+    if (!container) return;
+    // Set the card's position relative to the container
+    const containerRect = container.getBoundingClientRect();
+    const newX = e.clientX - containerRect.left - draggedCardPos.x;
+    const newY = e.clientY - containerRect.top - draggedCardPos.y;
+    const card = document.getElementById('draggable-function-card');
+    if (card) {
+      card.style.position = 'absolute';
+      card.style.left = `${newX}px`;
+      card.style.top = `${newY}px`;
+      card.style.zIndex = 10;
+      card.style.cursor = 'grabbing';
+    }
+  };
+
+  const handleDragEnd = (e) => {
+    setIsDragging(false);
+    const card = document.getElementById('draggable-function-card');
+    if (card) {
+      card.style.cursor = 'grab';
+    }
+  };
+
+  // AI code generation handler
+  const handleAIGenerate = async () => {
+    setAILoading(true);
+    setAIResult("");
+    setGeneratedDescription(""); // Reset description state
+    // Collect context: function code, callees, callers, docstring
+    const context = {
+      fileName: selectedFunction.fileName,
+      functionName: selectedFunction.functionName,
+      details: selectedFunction.details,
+      callees: (Array.isArray(selectedFunction.details?.calls) ? selectedFunction.details.calls : []),
+      callers: (Array.isArray(selectedFunction.details?.called_by) ? selectedFunction.details.called_by : []),
+    };
+    try {
+      const response = await fetch("http://127.0.0.1:8000/generate-function", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: aiPrompt, context }),
+      });
+      const data = await response.json();
+      setAIResult(data.generated_code || data.error || "No code generated.");
+      setGeneratedDescription(data.description || ""); // Fix: use 'description' field from backend
+    } catch (e) {
+      setAIResult("Error contacting AI backend.");
+    }
+    setAILoading(false);
+  };
+
+  const fetchFunctionDescription = async () => {
+    if (!selectedFunction) return;
+    setDescLoading(true);
+    setFunctionDescription("");
+    try {
+      const response = await fetch("http://127.0.0.1:8000/describe-function", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: selectedFunction.fileName,
+          functionName: selectedFunction.functionName,
+          details: selectedFunction.details
+        }),
+      });
+      const data = await response.json();
+      setFunctionDescription(data.description || data.error || "No description generated.");
+    } catch (e) {
+      setFunctionDescription("Error contacting AI backend.");
+    }
+    setDescLoading(false);
   };
 
   return (
@@ -135,9 +273,17 @@ function App() {
 
       <div className="main-content">
         <div className="file-hierarchy-container">
+          {/* Search bar for files/functions */}
+          <input
+            type="text"
+            className="search-bar"
+            placeholder="Search files or functions..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ width: '95%', margin: '8px 0', padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc' }}
+          />
           {renderFileHierarchy()}
         </div>
-
         <div className="graph-area">
           {selectedFunction && (
             <div className="function-details collapsible">
@@ -153,57 +299,202 @@ function App() {
               <div className="details-content">
                 <h2>Function Details</h2>
                 <p><strong>File:</strong> {selectedFunction.fileName}</p>
-                <p><strong>Function:</strong> {selectedFunction.functionName}</p>
-                <p><strong>Line:</strong> {selectedFunction.details.line}</p>
-                <p><strong>Docstring:</strong> {selectedFunction.details.docstring || 'No docstring available'}</p>
+                <p><strong>Function:</strong> {selectedFunction.functionName} {selectedFunction.details.is_fixture && <span style={{color:'#007bff', fontWeight:'bold', marginLeft:8}}>[fixture]</span>}</p>
+                <p><strong>Line:</strong> {selectedFunction.details.line || 'N/A'}</p>
+                {selectedFunction.details.docstring && (
+                  <p><strong>Docstring:</strong> {selectedFunction.details.docstring}</p>
+                )}
                 <h3>Calls:</h3>
                 <ul>
-                  {selectedFunction.details.calls.map((call, index) => (
-                    <li key={index}>{call.function} (Line: {call.line})</li>
-                  ))}
+                  {/* Aggregate calls by function name */}
+                  {(() => {
+                    const callMap = {};
+                    (Array.isArray(selectedFunction.details?.calls) ? selectedFunction.details.calls : []).forEach(call => {
+                      if (!callMap[call.function]) callMap[call.function] = { count: 0, lines: [] };
+                      callMap[call.function].count++;
+                      callMap[call.function].lines.push(call.line);
+                    });
+                    const callEntries = Object.entries(callMap);
+                    if (callEntries.length === 0) return <li style={{color: '#888'}}>No call data available</li>;
+                    return callEntries.map(([fn, info], idx) => (
+                      <li key={fn}>
+                        {fn} — <strong>{info.count} time{info.count > 1 ? 's' : ''}</strong>
+                        {info.lines.length > 0 && (
+                          <span style={{color:'#888', marginLeft:6}}>
+                            (Line{info.lines.length > 1 ? 's' : ''}: {info.lines.filter(l => l !== undefined).join(', ')})
+                          </span>
+                        )}
+                      </li>
+                    ));
+                  })()}
                 </ul>
-                <h3>Called By:</h3>
-                <ul>
-                  {selectedFunction.details.called_by.map((caller, index) => (
-                    <li key={index}>{caller.function} (Line: {caller.line})</li>
-                  ))}
-                </ul>
+                {(() => {
+                  // Aggregate called_by by function name
+                  const calledByMap = {};
+                  (Array.isArray(selectedFunction.details?.called_by) ? selectedFunction.details.called_by : []).forEach(caller => {
+                    if (!calledByMap[caller.function]) calledByMap[caller.function] = { count: 0, lines: [] };
+                    calledByMap[caller.function].count++;
+                    calledByMap[caller.function].lines.push(caller.line);
+                  });
+                  const calledByEntries = Object.entries(calledByMap);
+                  if (calledByEntries.length === 0) return null;
+                  return (
+                    <>
+                      <h3>Called By:</h3>
+                      <ul>
+                        {calledByEntries.map(([fn, info], idx) => (
+                          <li key={fn}>
+                            {fn} — <strong>{info.count} time{info.count > 1 ? 's' : ''}</strong>
+                            {info.lines.length > 0 && (
+                              <span style={{color:'#888', marginLeft:6}}>
+                                (Line{info.lines.length > 1 ? 's' : ''}: {info.lines.filter(l => l !== undefined).join(', ')})
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  );
+                })()}
+                <button
+                  style={{ margin: '12px 0', background: '#007bff', color: '#fff', border: 'none', borderRadius: 4, padding: '8px 16px', fontWeight: 'bold', cursor: 'pointer' }}
+                  onClick={() => setShowAIModal(true)}
+                >
+                  Generate with AI
+                </button>
+                <button
+                  style={{ margin: '12px 0', background: '#007bff', color: '#fff', border: 'none', borderRadius: 4, padding: '8px 16px', fontWeight: 'bold', cursor: 'pointer' }}
+                  onClick={fetchFunctionDescription}
+                  disabled={descLoading}
+                >
+                  {descLoading ? 'Generating Description...' : 'Describe Function'}
+                </button>
+                {functionDescription && (
+                  <div className="function-description" style={{ marginTop: 12, background: '#f5f5f5', padding: 12, borderRadius: 4 }}>
+                    <h4 style={{ fontWeight: 'bold' }}>Function Description</h4>
+                    <ReactMarkdown>{functionDescription}</ReactMarkdown>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
           {/* Function Cards Container */}
-          <div className="function-cards-container">
+          <div className="function-cards-container" style={{ position: 'relative', minHeight: 120 }}>
+            {/* Filter function cards by search query */}
             {selectedFile &&
-              Object.entries(graphData.call_graph[selectedFile] || {}).map(([functionName, details]) => (
-                <div
-                  key={functionName}
-                  className="function-card"
-                  onClick={() => handleFunctionSelect({ fileName: selectedFile, functionName, details })}
-                >
-                  {functionName} (Line: {details.line})
-                </div>
-              ))}
+              Object.entries(graphData.call_graph[selectedFile] || {})
+                .filter(([functionName]) => functionName.toLowerCase().includes(searchQuery.toLowerCase()))
+                .map(([functionName, details]) => {
+                  const isSelected = selectedFunction && selectedFunction.functionName === functionName;
+                  return (
+                    <div
+                      key={functionName}
+                      className="function-card"
+                      id={isSelected ? 'draggable-function-card' : undefined}
+                      style={
+                        isSelected
+                          ? {
+                              position: isDragging ? 'absolute' : 'relative',
+                              left: isDragging ? undefined : 0,
+                              top: isDragging ? undefined : 0,
+                              zIndex: isDragging ? 10 : 1,
+                              cursor: isDragging ? 'grabbing' : 'grab',
+                              background: '#e6f7ff',
+                              border: '2px solid #007bff',
+                            }
+                          : {}
+                      }
+                      draggable={isSelected}
+                      onDragStart={isSelected ? handleDragStart : undefined}
+                      onDrag={isSelected ? handleDrag : undefined}
+                      onDragEnd={isSelected ? handleDragEnd : undefined}
+                      onClick={() => handleFunctionSelect({ fileName: selectedFile, functionName, details })}
+                    >
+                      {functionName} (Line: {details.line})
+                    </div>
+                  );
+                })}
           </div>
 
           {/* Graph Visualizer */}
-          {selectedFunction && (
-            <GraphVisualizer
-              data={{
-                nodes: [
-                  { id: selectedFunction.functionName, function: selectedFunction.functionName, line: selectedFunction.details.line, file: selectedFunction.fileName },
-                  ...selectedFunction.details.calls.map((call) => ({ id: call.function, function: call.function, line: call.line, file: selectedFunction.fileName })),
-                  ...selectedFunction.details.called_by.map((caller) => ({ id: caller.function, function: caller.function, line: caller.line, file: selectedFunction.fileName })),
-                ],
-                links: [
-                  ...selectedFunction.details.calls.map((call) => ({ source: selectedFunction.functionName, target: call.function, line: call.line })),
-                  ...selectedFunction.details.called_by.map((caller) => ({ source: caller.function, target: selectedFunction.functionName, line: caller.line })),
-                ],
-              }}
-            />
-          )}
+          {selectedFunction && (() => {
+            // Aggregate nodes: unique by function name (within the selected file)
+            const nodeSet = new Map();
+            const addNode = (fn, line) => {
+              if (!nodeSet.has(fn)) nodeSet.set(fn, { id: fn, function: fn, line, file: selectedFunction.fileName });
+            };
+            addNode(selectedFunction.functionName, selectedFunction.details.line);
+            (Array.isArray(selectedFunction.details?.calls) ? selectedFunction.details.calls : []).forEach(call => addNode(call.function, call.line));
+            (Array.isArray(selectedFunction.details?.called_by) ? selectedFunction.details.called_by : []).forEach(caller => addNode(caller.function, caller.line));
+
+            // Aggregate links: group by target/source, count occurrences, collect lines
+            const callCounts = {};
+            (Array.isArray(selectedFunction.details?.calls) ? selectedFunction.details.calls : []).forEach(call => {
+              const key = `${selectedFunction.functionName}->${call.function}`;
+              if (!callCounts[key]) callCounts[key] = { source: selectedFunction.functionName, target: call.function, lines: [] };
+              callCounts[key].lines.push(call.line);
+            });
+            const calledByCounts = {};
+            (Array.isArray(selectedFunction.details?.called_by) ? selectedFunction.details.called_by : []).forEach(caller => {
+              const key = `${caller.function}->${selectedFunction.functionName}`;
+              if (!calledByCounts[key]) calledByCounts[key] = { source: caller.function, target: selectedFunction.functionName, lines: [] };
+              calledByCounts[key].lines.push(caller.line);
+            });
+
+            return (
+              <GraphVisualizer
+                data={{
+                  nodes: Array.from(nodeSet.values()),
+                  links: [
+                    ...Object.values(callCounts).map(l => ({ ...l, count: l.lines.length })),
+                    ...Object.values(calledByCounts).map(l => ({ ...l, count: l.lines.length })),
+                  ],
+                }}
+              />
+            );
+          })()}
         </div>
       </div>
+
+      {/* AI Modal */}
+      {showAIModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 8, padding: 32, minWidth: 400, maxWidth: 600, boxShadow: '0 4px 24px rgba(0,0,0,0.18)' }}>
+            <h2>AI-Assisted Function Generation</h2>
+            <label style={{ fontWeight: 'bold' }}>Describe the function you want to generate:</label>
+            <textarea
+              value={aiPrompt}
+              onChange={e => setAIPrompt(e.target.value)}
+              rows={8} // Increased from 4 to 8 for more space
+              style={{ width: '100%', minHeight: 120, margin: '12px 0', padding: 8, borderRadius: 4, border: '1px solid #ccc', resize: 'vertical' }}
+              placeholder="e.g. Write a function that validates an email address."
+            />
+            <div style={{ margin: '12px 0' }}>
+              <button
+                onClick={handleAIGenerate}
+                disabled={aiLoading || !aiPrompt.trim()}
+                style={{ background: '#007bff', color: '#fff', border: 'none', borderRadius: 4, padding: '8px 16px', fontWeight: 'bold', marginRight: 12 }}
+              >
+                {aiLoading ? 'Generating...' : 'Generate'}
+              </button>
+              <button onClick={() => { setShowAIModal(false); setAIResult(""); setAIPrompt(""); }} style={{ border: 'none', background: '#eee', borderRadius: 4, padding: '8px 16px' }}>Cancel</button>
+            </div>
+            {aiResult && (
+              <div style={{ marginTop: 16 }}>
+                <label style={{ fontWeight: 'bold' }}>Generated Code:</label>
+                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 4, maxHeight: 300, overflow: 'auto' }}>{aiResult}</pre>
+                {generatedDescription && (
+                  <div className="generated-description" style={{ marginTop: 12 }}>
+                    <h4 style={{ fontWeight: 'bold' }}>Function Description</h4>
+                    <p style={{ margin: 0 }}>{generatedDescription}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
